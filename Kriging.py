@@ -147,7 +147,7 @@ class Kriging():
 
     def psi_eval(corr_vector, y, x, F, theta):
         n, m = x.shape
-        Phi = corr_eval(corr_vector, theta, x)
+        Phi = Kriging.corr_eval(corr_vector, theta, x)
         # Regularization, Phi = Phi + mu * I, mu = (10+m)*epsilon
         mu = (10 + m) * 1e-3
         Phi = np.copy(Phi + mu * np.identity(m))
@@ -167,7 +167,7 @@ class Kriging():
 
     def info_eval(corr_vector, y, x, F, theta):
         n, m = x.shape
-        Phi = corr_eval(corr_vector, theta, x)
+        Phi = Kriging.corr_eval(corr_vector, theta, x)
         # Regularization, Phi = Phi + mu * I, mu = (10+m)*epsilon
         mu = (10 + m) * 1e-3
         Phi = np.copy(Phi + mu * np.identity(m))
@@ -201,16 +201,16 @@ class Kriging():
         Y = (y - np.mean(y)) / (np.std(y))
         X = (x - np.mean(x, axis=1).reshape(-1, 1)) / np.std(x, axis=1).reshape(-1, 1)
 
-        regr = eval_regression_basis(regr_keyword)
+        regr = Kriging.eval_regression_basis(regr_keyword)
         F = regr(x)
-        corr_scalar, corr_vector = correlation_basis(corr_keyword)
-        func_eval = partial(psi_eval, corr_vector, y, x, F)
+        corr_scalar, corr_vector = Kriging.correlation_basis(corr_keyword)
+        func_eval = partial(Kriging.psi_eval, corr_vector, y, x, F)
         delta, delta_refine = 0.2, 8
         iter_max = 100
         # TODO theta must be n by 1 vector, restricted by GPS.move algorithm.
         theta, iter_num, delta = GPS.move(theta0, delta, func_eval, iter_max, delta_refine)
-        C_inv, R, beta, gamma, tilde_F = info_eval(corr_vector, y, x, F, theta)
-        return theta, C, R, tilde_F, beta, gamma
+        C_inv, R, beta, gamma, tilde_F = Kriging.info_eval(corr_vector, y, x, F, theta)
+        return theta, C_inv, R, tilde_F, beta, gamma
 
 
     def kriging_eval(self):
