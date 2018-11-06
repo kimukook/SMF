@@ -1,53 +1,8 @@
-import numpy as np
-import matplotlib.pyplot as plt
-from itertools import combinations
-
-def test_fun_schwefel(n):
-    lb = np.zeros(n)
-    ub = np.ones(n)
-    fun = lambda x: - sum(np.multiply(500 * x, np.sin(np.sqrt(abs(500 * x))))) / 250
-    y0 = -1.6759316 * n  # targert value for objective function
-    xmin = 0.8419 * np.ones((n, 1))
-    fname = 'Schewfel'
-    return fname, xmin, y0, fun, lb, ub
-
-n = 2
-m = 10
-Nm = 8
-x = np.random.rand(n, m)
-x = np.round(x * Nm) / Nm
-y = np.zeros(m)
-fname, xmin, y0, fun, lb, ub = test_fun_schwefel(n)
-
-for i in range(m):
-    y[i] = fun(x[:, i].reshape(-1, 1))
-
-
-def main_dace(y, x, regr_keyword, corr_keyword, theta0):
-    '''
-
-    :param y: The function values y_i at the sites x_i
-    :param x: The set of evaluated sites.
-    :param regr: The regression model, consists of a basis of functions.
-    :param corr: The correlation functions.
-    :param theta0: The initial guess for parameters of theta.
-    :return:
-    '''
-    assert isinstance(y, np.ndarray), 'The input of function evaluations matrix y is not an array!'
-    assert isinstance(x, np.ndarray), 'The input of sites matrix x is not an array!'
-    assert y.ndim == 1, 'The input of function evaluations matrix y should be 1 dimension array!'
-    assert x.ndim == 2, 'The input of sites matrix x should be 2 dimension array!'
-
-    # Normalize data, x & y --> X & Y
-    Y = (y - np.mean(y)) / (np.std(y))
-    X = (x - np.mean(x, axis=1).reshape(-1, 1)) / np.std(x, axis=1).reshape(-1, 1)
-
-    regr = eval_regression_basis(regr_keyword)
-    F = regr(x)
-    corr_scalr, corr_vector = correlation_basis(corr_keyword)
-    psi = minimize_psi(theta0, corr, Y, X, F)
-    return psi
-
+import  numpy               as np
+import  matplotlib.pyplot   as plt
+from    functools           import partial
+from    itertools           import combinations
+import  Modified_Hookes_GPS as GPS
 
 def eval_regression_basis(keyword):
     '''
@@ -173,10 +128,9 @@ def corr_eval(corr_vector, theta, x):
     return Phi
 
 
-
-def psi_eval(theta, corr, y, x, F):
+def psi_eval(corr_vector, y, x, F, theta):
     n, m = x.shape
-    Phi = corr_eval(corr, theta, x)  # TODO need add a mu*I on the digonal.
+    Phi = corr_eval(corr_vector, theta, x)  # TODO need add a mu*I on the digonal.
     C = np.linalg.cholesky(Phi)
     C_inv = np.linalg.inv(C)  # TODO This could be optimized by forward substitution.
     tilde_F = np.dot(C_inv, F)
@@ -188,3 +142,55 @@ def psi_eval(theta, corr, y, x, F):
     psi = np.linalg.det(Phi) ** (1/m) * sigma2
     return psi
 
+
+def main_dace(y, x, regr_keyword, corr_keyword, theta0):
+    '''
+
+    :param y: The function values y_i at the sites x_i
+    :param x: The set of evaluated sites.
+    :param regr: The regression model, consists of a basis of functions.
+    :param corr: The correlation functions.
+    :param theta0: The initial guess for parameters of theta.
+    :return:
+    '''
+    assert isinstance(y, np.ndarray), 'The input of function evaluations matrix y is not an array!'
+    assert isinstance(x, np.ndarray), 'The input of sites matrix x is not an array!'
+    assert y.ndim == 1, 'The input of function evaluations matrix y should be 1 dimension array!'
+    assert x.ndim == 2, 'The input of sites matrix x should be 2 dimension array!'
+
+    # Normalize data, x & y --> X & Y
+    Y = (y - np.mean(y)) / (np.std(y))
+    X = (x - np.mean(x, axis=1).reshape(-1, 1)) / np.std(x, axis=1).reshape(-1, 1)
+
+    regr = eval_regression_basis(regr_keyword)
+    F = regr(x)
+    corr_scalar, corr_vector = correlation_basis(corr_keyword)
+    func_eval = partial(psi_eval, corr_vector, y, x, F)
+    delta, delta_refine = 0.2, 8
+    iter_max = 100
+    theta, iter_num, delta = GPS.move(theta0, delta, func_eval, iter_max, delta_refine)
+    # TODO determine those outputs.
+    # TODO theta must be n by 1 vector, restricted by GPS.move algorithm.
+    return theta, C, R, tilde_F, beta, gamma
+
+
+# Test case
+def test_fun_schwefel(n):
+    lb = np.zeros(n)
+    ub = np.ones(n)
+    fun = lambda x: - sum(np.multiply(500 * x, np.sin(np.sqrt(abs(500 * x))))) / 250
+    y0 = -1.6759316 * n  # targert value for objective function
+    xmin = 0.8419 * np.ones((n, 1))
+    fname = 'Schewfel'
+    return fname, xmin, y0, fun, lb, ub
+
+n = 2
+m = 10
+Nm = 8
+x = np.random.rand(n, m)
+x = np.round(x * Nm) / Nm
+y = np.zeros(m)
+fname, xmin, y0, fun, lb, ub = test_fun_schwefel(n)
+
+for i in range(m):
+    y[i] = fun(x[:, i].reshape(-1, 1))
