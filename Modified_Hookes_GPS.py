@@ -5,19 +5,25 @@ For more information, please refer "Introduction to Optimziation and Data Fittin
 '''
 
 
-def explore(x, delta, func):
+def explore(x, delta, func, lb=[], ub=[]):
     '''
     Implement the Algorithm 4.2: Explore around the current best point by evaluating points with the unit length distance
     in each coordiante.
     :param x:       The current best point. Form: n by 1 vector.
     :param delta:   The step length of current move.
     :param func:    The objective function that aims at minimizing.
+    :param lb:      The lower bound of parameters.
+    :param ub:      The upper bound of parameters.
     :return: A new point for exploration.
     '''
     n = x.shape[0]
+    if not lb:  # lb == []
+        lb = np.zeros((n, 1))
+    if not ub:
+        ub = np.ones((n, 1))
     x_bar = np.copy(x)
     for i in range(n):
-        new_x = step_length_constraints_check(delta, x_bar, i)
+        new_x = step_length_constraints_check(delta, x_bar, i, lb, ub)
         psi_value = np.zeros(3)
         for j in range(new_x.shape[1]):
             psi_value[j] = func(new_x[:, j].reshape(-1, 1))
@@ -26,7 +32,7 @@ def explore(x, delta, func):
     return x_bar
 
 
-def step_length_constraints_check(delta, x_hat, i):
+def step_length_constraints_check(delta, x_hat, i, lb, ub):
     '''
     Boudn the coordinate seach inside the box domain.
     :param delta: Step length.
@@ -39,14 +45,14 @@ def step_length_constraints_check(delta, x_hat, i):
     new_x = np.hstack((x_hat - step, x_hat, x_hat + step))
     for i in range(new_x.shape[0]):
         for j in range(new_x.shape[1]):
-            if new_x[i, j] > 1:
-                new_x[i, j] = 1
-            elif new_x[i, j] < 0:
-                new_x[i, j] = 0
+            if new_x[i, j] > ub[i, 0]:
+                new_x[i, j] = ub[i, 0]
+            elif new_x[i, j] < lb[i, 0]:
+                new_x[i, j] = lb[i, 0]
     return new_x
 
 
-def bound_base_point(z):
+def bound_base_point(z, lb, ub):
     '''
     Bound the base point in the box domain.
     :param z:
@@ -55,10 +61,10 @@ def bound_base_point(z):
     n = z.shape[0]
     for i in range(z.shape[0]):
         for j in range(z.shape[1]):
-            if z[i, j] > 1:
-                z[i, j] = 1
-            elif z[i, j] < 0:
-                z[i, j] = 0
+            if z[i, j] > ub[i, 0]:
+                z[i, j] = ub[i, 0]
+            elif z[i, j] < lb[i, 0]:
+                z[i, j] = lb[i, 0]
     return z
 
 
@@ -78,7 +84,7 @@ def check_stop(delta, delta_threshold, iter_max, iter_num):
     return stop
 
 
-def move(x, delta, func, iter_max, delta_refine):
+def move(x, delta, func, iter_max, delta_refine, lb, ub):
     '''
     The main script.
     :param x: Current best point or initial point.
@@ -91,22 +97,22 @@ def move(x, delta, func, iter_max, delta_refine):
     assert x.ndim == 2, 'The input x should be n by 1 vector!'
     assert isinstance(x, np.ndarray), 'The inputx is not a np.ndarray!'
     delta_threshold = (1/2) ** delta_refine * delta
-    x_hat = explore(x, delta, func)
+    x_hat = explore(x, delta, func, lb, ub)
     stop = 0
     iter_num = 0
     while not stop:
         iter_num += 1
         if func(x_hat) < func(x):
             z = np.copy(x_hat + (x_hat - x))
-            z = bound_base_point(z)
+            z = bound_base_point(z, lb, ub)
             x = np.copy(x_hat)
         else:
             z = np.copy(x)
             delta /= 2
-        x_hat = explore(z, delta, func)
+        x_hat = explore(z, delta, func, lb, ub)
         stop = check_stop(delta, delta_threshold, iter_max, iter_num)
-        print('xhat = ', x_hat.T)
-        print('delta = ', delta)
+        # print('xhat = ', x_hat.T)
+        # print('delta = ', delta)
     return x_hat, iter_num, delta
 
 
@@ -138,3 +144,5 @@ def move(x, delta, func, iter_max, delta_refine):
 #
 #
 # x_minima, iter_num, delta = move(best, delta, fun, iter_max, delta_refine)
+# This method will converge to minimum if we have a good point near by.
+
