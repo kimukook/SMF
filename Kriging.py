@@ -36,8 +36,8 @@ class Kriging:
         self.y = np.copy(Y)
         self.theta = np.copy(theta0)
 
-        self.regr_func_eval = Kriging.eval_regression_basis(self)
-        self.corr_func_scalar_eval, self.corr_func_vector_eval = Kriging.correlation_basis(self)
+        self.regr_func_eval, self.regr_func_grad = Kriging.eval_regression_basis(self)
+        self.corr_func_scalar_eval, self.corr_func_vector_eval, self.corr_func_grad = Kriging.correlation_basis(self)
 
         self.C_inv = []
         self.R = []
@@ -57,14 +57,27 @@ class Kriging:
                 '''
                 Return a basis regression, consists of n+1 functions. 1 constant function plus each coordinates.
                 :param x: The sites x.
-                :return: n+1 basis functions.
+                :return: A function that evaluates the n+1 linear basis functions for point x, return as a n by n+1 matrix.
                 '''
                 assert isinstance(x, np.ndarray), 'The input of sites matrix x is not an array!'
                 assert x.ndim == 2, 'The input x should be columnwise vector, 2D!'
                 n, m = x.shape
                 F = np.hstack((np.ones((m, 1)), x.T))
                 return F
-            return linear_basis
+
+            def linear_basis_gradient(x):
+                '''
+                Determine the Jacobian matrix at x based on n+1 linear basis functions.
+                :param x: The site x.
+                :return: The Jacobian matrix, n+1 by n.
+                '''
+                assert isinstance(x, np.ndarray), 'The input of sites matrix x is not an array!'
+                assert x.ndim == 2, 'The input x should be columnwise vector, 2D!'
+                n, m = x.shape
+                JF = np.vstack(( np.zeros((1, n)), np.identity(n) ))
+                return JF
+
+            return linear_basis, linear_basis_gradient
 
         elif self.regr_keyword == 'quadratic':
             def quadratic_basis(x):
@@ -89,11 +102,39 @@ class Kriging:
                 # the order of functions in F can be shuffled.
                 comb = np.array([list(c) for c in combinations(nlist, 2)])  # we use 2 because its quadratic.
                 if comb.any():  # For n = 1, there is no 1C2, so comb will be empty.
-                    comb_matrix = x[comb]
+                    comb_matrix = x[comb - 1, :]  # combination numbers used as index should seduce 1 in python.
                     cross_term = comb_matrix[:, 0, :] * comb_matrix[:, 1, :]
                     F = np.hstack((F, cross_term.T))
                 return F
-            return quadratic_basis
+
+            def quadratic_basis_gradient(x):
+                '''
+                Determine the Jacobian matrix at x based on (n+1)(n+2)/2 quadratic basis functions.
+                :param x: The site x.
+                :return:  The Jacobian matrix, (n+1)(n+2)/2 by n.
+                '''
+                assert isinstance(x, np.ndarray), 'The input of sites matrix x is not an array!'
+                assert x.ndim == 2, 'The input x should be column-wise vector, 2D!'
+                n, m = x.shape
+
+                # linear part
+                JF = np.vstack(( np.zeros((1, n)), np.identity(n) ))
+
+                # quadratic part
+                # np.diag must be 1 dimension row vector
+                JF = np.vstack(( JF, np.diag(2 * x.T[0]) ))
+
+                # cross-terms
+                nlist = np.arange(1, n + 1)
+                comb = np.array([list(c) for c in combinations(nlist, 2)])  # we use 2 because its quadratic.
+                if comb.any():
+                    for i in range(comb.shape[0]):
+                        temp = np.zeros((1, n))
+                        temp[comb[i]-1] = x[np.flip(comb[i]-1, axis=0)]
+                        JF = np.vstack(( JF, temp))
+                return JF
+
+            return quadratic_basis, quadratic_basis_gradient
 
         else:
             print('Keyword should be "linear" or "quadratic" temporarily ')
@@ -110,11 +151,14 @@ class Kriging:
                 '''
                 Evaluate the exponential correlation between two sites.
                 Important: notice that theta should be in exp form
-                :param theta: Weight parameters for different dimensions, should be a 1 by n vector for now.
+                :param theta: Weight parameters for different dimensions, should be a n by 1.
                 :param x: One site, has the form as n by , vector.
                 :param y: Another site, has the form as n by , vector.
                 :return: An exponential correlation function
                 '''
+                assert theta.ndim == 2, 'The shape of theta should be (n,1).'
+
+                theta = theta.reshape(-1, 1).T  # transform theta to be a 2D, n by 1 vector.
                 exp_theta = np.power(10, theta)
                 diff = np.abs(x-y)
                 return np.exp(-exp_theta.dot(diff))
@@ -123,7 +167,7 @@ class Kriging:
                 '''
                 Evaluate the exponential correlation between site x and other sites Y.
                 Important: notice that theta should be in exp form
-                :param theta: Weight parameters for different dimensions, should be a 1 by n vector for now.
+                :param theta: Weight parameters for different dimensions, should be a n by 1.
                 :param x: One site, has the form as n by , vector.
                 :param y: Another site, has the form as n by m vector.
                 :return: An exponential correlation function
@@ -133,7 +177,23 @@ class Kriging:
                 x = x.reshape(-1, 1)  # transform x into a 2D, n by 1 vector
                 diff = np.abs(Y - x)
                 return np.exp(-exp_theta.dot(diff))
-            return correxp_scalar, correxp_vector
+
+            def correxp_gradient(theta, x, Y):
+                '''
+                Evaluate the gradient of exponential correlation between x and other sites Y.
+                :param theta: Weight parameters for different dimensions, should be a n by 1.
+                :param x: The site x.
+                :param Y: The evaluated sites.
+                :return:  The Jacobian of correlation function.
+                '''
+                theta = theta.reshape(-1, 1).T  # transform theta to be a 2D, n by 1 vector.
+
+                exp_theta = np.power(10, theta)
+                x = x.reshape(-1, 1)
+
+                return np.exp( -exp_theta.dot(np.sign(x-Y)) )
+
+            return correxp_scalar, correxp_vector, correxp_gradient
 
         elif self.corr_keyword == 'corrgauss':
 
@@ -141,18 +201,20 @@ class Kriging:
                 '''
                 Evaluate the exponential correlation between two sites.
                 Important: notice that theta should be in exp form
-                :param theta: Weight parameters for different dimensions, should be a 1 by n vector for now.
+                :param theta: Weight parameters for different dimensions, should be a n by 1.
                 :param x: One site, has the form as n by , vector.
                 :param y: Another site, has the form as n by , vector.
                 :return: An gaussian correlation function
                 '''
+                assert theta.ndim == 2, 'The shape of theta should be (n,1).'
+                theta = theta.reshape(-1, 1).T  # transform theta to be a 2D, n by 1 vector.
                 exp_theta = np.power(10, theta)
                 return np.exp(-exp_theta.dot((x-y)**2))
 
             def corrgauss_vector(theta, x, Y):
                 '''
                 Evaluate the exponential correlation between site x and other sites Y.
-                :param theta: Weight parameters for different dimensions, should be a 1 by n vector for now.
+                :param theta: Weight parameters for different dimensions, should be a n by 1.
                 Important: notice that theta should be in exp form
                 :param x: One site, has the form as n by , vector.
                 :param y: Another site, has the form as n by m vector.
@@ -163,7 +225,24 @@ class Kriging:
                 x = x.reshape(-1, 1)  # transform x into a 2D, n by 1 vector
                 diff = np.abs(Y - x)
                 return np.exp(-exp_theta.dot(diff**2))
-            return corrgauss_scalar, corrgauss_vector
+
+
+            def corrgrauss_gradient(theta, x, Y):
+                '''
+                Evaluate the gradient of exponential correlation between x and other sites Y.
+                :param theta: Weight parameters for different dimensions, should be a n by 1.
+                :param x: The site x.
+                :param Y: The evaluated sites.
+                :return:  The Jacobian of correlation function.
+                '''
+                theta = theta.reshape(-1, 1).T  # transform theta to be a 2D, n by 1 vector.
+
+                exp_theta = np.power(10, theta)
+                x = x.reshape(-1, 1)
+                diff = 2 * np.abs(x - Y) * np.sign(x - Y)
+                return np.exp( -exp_theta.dot(diff) )
+
+            return corrgauss_scalar, corrgauss_vector, corrgrauss_gradient
 
         else:
             print('Wrong type of keyword!')
@@ -188,12 +267,10 @@ class Kriging:
         mu = (10 + m) * 1e-5
         Phi = np.copy(Phi + mu * np.identity(m))
         C = np.linalg.cholesky(Phi)
-        # TODO inv optimize, forward substitution.
         C_inv = np.linalg.inv(C)
         tilde_F = np.dot(C_inv, F)
         tilde_Y = np.dot(C_inv, self.y.reshape(-1, 1))
         Q, R = np.linalg.qr(tilde_F)
-        # TODO inv optimize, forward substitution.
         beta = np.dot(np.dot(np.linalg.inv(R), Q.T), tilde_Y)
         residual = tilde_Y - np.dot(tilde_F, beta)
         sigma2 = 1/m * np.dot(residual.T, residual)
@@ -224,7 +301,7 @@ class Kriging:
         # Finally we have theta, we need to update all info one more time.
         psi = Kriging.psi_eval(self, F, self.theta)
 
-    def kriging_eval(self, x):
+    def  kriging_eval(self, x):
         x = x.reshape(-1, 1)
         '''
         Evaluate the kriging interpolation at untried site x.
