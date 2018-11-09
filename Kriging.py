@@ -27,6 +27,9 @@ class Kriging:
         Y = (y - np.mean(y)) / (np.std(y))
         X = (x - np.mean(x, axis=1).reshape(-1, 1)) / np.std(x, axis=1).reshape(-1, 1)
 
+        self.original_x = np.copy(x)
+        self.original_y = np.copy(y)
+
         self.corr_keyword = corr_keyword
         self.regr_keyword = regr_keyword
         self.x = np.copy(X)
@@ -85,9 +88,10 @@ class Kriging:
                 nlist = np.arange(1, n + 1)
                 # the order of functions in F can be shuffled.
                 comb = np.array([list(c) for c in combinations(nlist, 2)])  # we use 2 because its quadratic.
-                comb_matrix = x[comb]
-                cross_term = comb_matrix[:, 0, :] * comb_matrix[:, 1, :]
-                F = np.hstack((F, cross_term.T))
+                if comb.any():  # For n = 1, there is no 1C2, so comb will be empty.
+                    comb_matrix = x[comb]
+                    cross_term = comb_matrix[:, 0, :] * comb_matrix[:, 1, :]
+                    F = np.hstack((F, cross_term.T))
                 return F
             return quadratic_basis
 
@@ -227,8 +231,11 @@ class Kriging:
         :param x: The site.
         :return:  The Kriging interpolation value at x.
         '''
-        return np.dot(self.regr_func_eval(x), self.beta) + \
-               np.dot(self.corr_func_vector_eval(self.theta, x, self.x), self.gamma)
+        normalized_x = (x - np.mean(self.original_x, axis=1).reshape(-1, 1)) / np.std(self.original_x, axis=1).reshape(-1, 1)
+
+        normalized_y = np.dot(self.regr_func_eval(normalized_x), self.beta) + \
+               np.dot(self.corr_func_vector_eval(self.theta, normalized_x, self.x), self.gamma)
+        return normalized_y * np.std(self.original_y) + np.mean(self.original_y)
 
     def kriging_gradient(self, x):
 
