@@ -5,7 +5,7 @@ For more information, please refer "Introduction to Optimziation and Data Fittin
 '''
 
 
-def explore(x, delta, func, lb=[], ub=[]):
+def explore(x, delta, func, lb, ub):
     '''
     Implement the Algorithm 4.2: Explore around the current best point by evaluating points with the unit length distance
     in each coordiante.
@@ -17,10 +17,6 @@ def explore(x, delta, func, lb=[], ub=[]):
     :return: A new point for exploration.
     '''
     n = x.shape[0]
-    if not lb:  # lb == []
-        lb = np.zeros((n, 1))
-    if not ub:
-        ub = np.ones((n, 1))
     x_bar = np.copy(x)
     for i in range(n):
         new_x = step_length_constraints_check(delta, x_bar, i, lb, ub)
@@ -84,7 +80,7 @@ def check_stop(delta, delta_threshold, iter_max, iter_num):
     return stop
 
 
-def move(x, delta, func, iter_max, delta_refine, lb, ub):
+def move(x, delta, func, iter_max, delta_refine, lb=[], ub=[]):
     '''
     The main script.
     :param x: Current best point or initial point.
@@ -96,6 +92,11 @@ def move(x, delta, func, iter_max, delta_refine, lb, ub):
     '''
     assert x.ndim == 2, 'The input x should be n by 1 vector!'
     assert isinstance(x, np.ndarray), 'The inputx is not a np.ndarray!'
+    if not len(lb):  # lb == []
+        lb = np.zeros((n, 1))
+    if not len(ub):
+        ub = np.ones((n, 1))
+
     delta_threshold = (1/2) ** delta_refine * delta
     x_hat = explore(x, delta, func, lb, ub)
     stop = 0
@@ -117,32 +118,32 @@ def move(x, delta, func, iter_max, delta_refine, lb, ub):
 
 
 # # Test case:
-# def test_fun_schwefel(n):
-#     lb = np.zeros(n)
-#     ub = np.ones(n)
-#     fun = lambda x: - sum(np.multiply(500 * x, np.sin(np.sqrt(abs(500 * x))))) / 250
-#     y0 = -1.6759316 * n  # targert value for objective function
-#     xmin = 0.8419 * np.ones((n, 1))
-#     fname = 'Schewfel'
-#     return fname, xmin, y0, fun, lb, ub
-#
-# n = 2
-# m = 10
-# Nm = 8
-# x = np.random.rand(n, m)
-# x = np.round(x * Nm) / Nm
-# y = np.zeros(m)
-# fname, xmin, y0, fun, lb, ub = test_fun_schwefel(n)
-#
-# for i in range(m):
-#     y[i] = fun(x[:, i].reshape(-1, 1))
-#
-# best = x[:, np.argmin(y)].reshape(-1, 1)
-# delta = 0.2
-# iter_max = 100
-# delta_refine = 8
-#
-#
-# x_minima, iter_num, delta = move(best, delta, fun, iter_max, delta_refine)
+def test_fun_schwefel(n):
+    lb = np.zeros(n)
+    ub = np.ones(n)
+    fun = lambda x: - sum(np.multiply(500 * x, np.sin(np.sqrt(abs(500 * x))))) / 250
+    y0 = -1.6759316 * n  # targert value for objective function
+    xmin = 0.8419 * np.ones((n, 1))
+    fname = 'Schewfel'
+    return fname, xmin, y0, fun, lb, ub
+
+n = 2
+m = 10
+Nm = 8
+x = np.random.rand(n, m)
+x = np.round(x * Nm) / Nm
+y = np.zeros(m)
+fname, xmin, y0, fun, _, _ = test_fun_schwefel(n)
+
+for i in range(m):
+    y[i] = fun(x[:, i].reshape(-1, 1))
+
+best = x[:, np.argmin(y)].reshape(-1, 1)
+delta = 0.2
+iter_max = 100
+delta_refine = 8
+
+
+x_minima, iter_num, delta = move(best, delta, fun, iter_max, delta_refine)
 # This method will converge to minimum if we have a good point near by.
 
