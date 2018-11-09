@@ -185,7 +185,7 @@ class Kriging:
         n, m = self.x.shape
         Phi = Kriging.corr_eval(self, theta)
         # Regularization, Phi = Phi + mu * I, mu = (10+m)*epsilon
-        mu = (10 + m) * 1e-3
+        mu = (10 + m) * 1e-5
         Phi = np.copy(Phi + mu * np.identity(m))
         C = np.linalg.cholesky(Phi)
         # TODO inv optimize, forward substitution.
@@ -198,7 +198,7 @@ class Kriging:
         residual = tilde_Y - np.dot(tilde_F, beta)
         sigma2 = 1/m * np.dot(residual.T, residual)
         psi = np.linalg.det(Phi) ** (1/m) * sigma2
-        gamma = C_inv.dot(tilde_Y - np.dot(tilde_F, beta))
+        gamma = np.dot(C_inv.T, tilde_Y - np.dot(tilde_F, beta))
 
         self.C_inv = np.copy(C_inv)
         self.R = np.copy(R)
@@ -215,7 +215,7 @@ class Kriging:
         F = self.regr_func_eval(self.x)
         func_eval = partial(Kriging.psi_eval, self, F)
         delta, delta_refine = 0.2, 16
-        iter_max = 100
+        iter_max = 1000
         # The upper and lower bounds are given in Engineering Design via Surrogate Modelling: A Practical Guide.
         lb = -2 * np.ones((self.x.shape[0], 1))
         ub = 2 * np.ones((self.x.shape[0], 1))
