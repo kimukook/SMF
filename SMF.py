@@ -1,6 +1,16 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import Kriging
 
+
+
+
+
+def
+
+
+
+# Test case
 
 def test_fun_schwefel(n):
     lb = np.zeros(n)
@@ -10,13 +20,6 @@ def test_fun_schwefel(n):
     xmin = 0.8419 * np.ones((n, 1))
     fname = 'Schewfel'
     return fname, xmin, y0, fun, lb, ub
-
-
-def
-
-
-
-
 n = 2
 m = 10
 Nm = 8

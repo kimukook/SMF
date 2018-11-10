@@ -1,9 +1,8 @@
-import  numpy               as np
-import  matplotlib.pyplot   as plt
-from    functools           import partial
-from    itertools           import combinations
-import  Modified_Hookes_GPS as GPS
-
+import  numpy               as      np
+from    functools           import  partial
+from    itertools           import  combinations
+import  Modified_Hookes_GPS as      GPS
+import  numpy.matlib        as      matlib
 
 class Kriging:
     def __init__(self, corr_keyword, regr_keyword, y, x, theta0):
@@ -44,6 +43,9 @@ class Kriging:
         self.beta = []
         self.gamma = []
         self.tilde_F = []
+
+    def normalize(self, x):
+        return (x - np.mean(self.original_x, axis=1).reshape(-1, 1)) / np.std(self.original_x, axis=1).reshape(-1, 1)
 
     def eval_regression_basis(self):
         '''
@@ -130,7 +132,7 @@ class Kriging:
                 if comb.any():
                     for i in range(comb.shape[0]):
                         temp = np.zeros((1, n))
-                        temp[comb[i]-1] = x[np.flip(comb[i]-1, axis=0)]
+                        temp[:, comb[i]-1] = x[np.flip(comb[i]-1, axis=0)].T
                         JF = np.vstack(( JF, temp))
                 return JF
 
@@ -172,7 +174,7 @@ class Kriging:
                 :param y: Another site, has the form as n by m vector.
                 :return: An exponential correlation function
                 '''
-                theta = theta.reshape(-1, 1).T  # transform theta to be a 2D, n by 1 vector.
+                theta = theta.reshape(-1, 1).T  # transform theta to be a 2D, 1 by n vector, row form.
                 exp_theta = np.power(10, theta)
                 x = x.reshape(-1, 1)  # transform x into a 2D, n by 1 vector
                 diff = np.abs(Y - x)
@@ -186,12 +188,16 @@ class Kriging:
                 :param Y: The evaluated sites.
                 :return:  The Jacobian of correlation function.
                 '''
-                theta = theta.reshape(-1, 1).T  # transform theta to be a 2D, n by 1 vector.
+                assert x.ndim == 2, 'The input x should be n by 1, 2D vector.'
+                n = x.shape[0]  # number of dimension of sites.
+                m = Y.shape[1]  # number of evaluated points.
+                theta = theta.reshape(-1, 1).T  # transform theta to be a 2D, 1 by n vector, row form.
 
                 exp_theta = np.power(10, theta)
                 x = x.reshape(-1, 1)
-
-                return np.exp( -exp_theta.dot(np.sign(x-Y)) )
+                g = matlib.repmat(-theta.T, m, 1) * matlib.repmat( np.exp( -exp_theta.dot(np.abs(x-Y)) ).T, 1, n)
+                g = g * np.sign(x.T-Y.T)
+                return g
 
             return correxp_scalar, correxp_vector, correxp_gradient
 
@@ -207,7 +213,7 @@ class Kriging:
                 :return: An gaussian correlation function
                 '''
                 assert theta.ndim == 2, 'The shape of theta should be (n,1).'
-                theta = theta.reshape(-1, 1).T  # transform theta to be a 2D, n by 1 vector.
+                theta = theta.reshape(-1, 1).T  # transform theta to be a 2D, n by 1 vector, row form.
                 exp_theta = np.power(10, theta)
                 return np.exp(-exp_theta.dot((x-y)**2))
 
@@ -218,14 +224,13 @@ class Kriging:
                 Important: notice that theta should be in exp form
                 :param x: One site, has the form as n by , vector.
                 :param y: Another site, has the form as n by m vector.
-                :return: An exponential correlation function
+                :return: An exponential correlation function, a row vector, the correlation of x and Y.
                 '''
-                theta = theta.reshape(-1, 1).T  # transform theta to be a 2D, n by 1 vector.
+                theta = theta.reshape(-1, 1).T  # transform theta to be a 2D, 1 by n vector, row form.
                 exp_theta = np.power(10, theta)
                 x = x.reshape(-1, 1)  # transform x into a 2D, n by 1 vector
                 diff = np.abs(Y - x)
                 return np.exp(-exp_theta.dot(diff**2))
-
 
             def corrgrauss_gradient(theta, x, Y):
                 '''
@@ -235,12 +240,17 @@ class Kriging:
                 :param Y: The evaluated sites.
                 :return:  The Jacobian of correlation function.
                 '''
-                theta = theta.reshape(-1, 1).T  # transform theta to be a 2D, n by 1 vector.
+                assert x.ndim == 2, 'The input x should be n by 1, 2D vector.'
+                n, m = Y.shape
+                theta = theta.reshape(-1, 1).T  # transform theta to be a 2D, 1 by n vector, row form.
 
                 exp_theta = np.power(10, theta)
                 x = x.reshape(-1, 1)
-                diff = 2 * np.abs(x - Y) * np.sign(x - Y)
-                return np.exp( -exp_theta.dot(diff) )
+                diff = np.abs(x - Y)
+
+                g = matlib.repmat(-exp_theta, m, 1) * matlib.repmat( np.exp( -exp_theta.dot(diff**2) ).T, 1, n)
+                g = g * 2*(x.T - Y.T)
+                return g
 
             return corrgauss_scalar, corrgauss_vector, corrgrauss_gradient
 
@@ -302,21 +312,30 @@ class Kriging:
         psi = Kriging.psi_eval(self, F, self.theta)
 
     def  kriging_eval(self, x):
-        x = x.reshape(-1, 1)
         '''
         Evaluate the kriging interpolation at untried site x.
         :param x: The site.
         :return:  The Kriging interpolation value at x.
         '''
-        normalized_x = (x - np.mean(self.original_x, axis=1).reshape(-1, 1)) / np.std(self.original_x, axis=1).reshape(-1, 1)
+        x = x.reshape(-1, 1)
+        normalized_x = Kriging.normalize(self, x)
 
         normalized_y = np.dot(self.regr_func_eval(normalized_x), self.beta) + \
                np.dot(self.corr_func_vector_eval(self.theta, normalized_x, self.x), self.gamma)
         return normalized_y * np.std(self.original_y) + np.mean(self.original_y)
 
-    def kriging_gradient(self, x):
+    def kriging_grad(self, x):
+        '''
 
-        return
+        :param x:
+        :return:
+        '''
+        x = x.reshape(-1, 1)
+
+        normalized_x = Kriging.normalize(self, x)
+        g = np.dot(self.regr_func_grad(normalized_x).T, self.beta) + \
+            np.dot(self.corr_func_grad(self.theta, normalized_x, self.x).T, self.gamma)
+        return g
 
 
 
